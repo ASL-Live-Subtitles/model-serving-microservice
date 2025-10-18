@@ -1,0 +1,341 @@
+from fastapi import FastAPI, HTTPException, status
+from typing import Dict, List, Any
+from uuid import UUID, uuid4
+from datetime import datetime
+
+# Import our models
+from models.gesture import (
+    GestureInput, GestureResult, ModelInput, ModelInfo, 
+    PredictionRequest
+)
+
+# Initialize FastAPI app with OpenAPI documentation
+app = FastAPI(
+    title="Model Serving Microservice",
+    description="A microservice for serving machine learning models for hand gesture recognition",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_tags=[
+        {
+            "name": "gestures",
+            "description": "Operations for gesture recognition and results management"
+        },
+        {
+            "name": "models",
+            "description": "Operations for ML model management and registration"
+        },
+        {
+            "name": "predictions",
+            "description": "Operations for batch prediction requests and processing"
+        },
+        {
+            "name": "health",
+            "description": "Health check and system status endpoints"
+        }
+    ]
+)
+
+# In-memory storage for demonstration (replace with actual database in production)
+gestures_db: Dict[UUID, GestureResult] = {}
+models_db: Dict[UUID, ModelInfo] = {}
+predictions_db: Dict[UUID, PredictionRequest] = {}
+
+# Dummy helper functions
+def make_dummy_gesture(gesture_id: UUID = None) -> GestureResult:
+    """Create a dummy gesture result for demonstration."""
+    return GestureResult(
+        id=gesture_id or uuid4(),
+        landmarks=[[0.5, 0.6], [0.52, 0.58], [0.54, 0.56], [0.56, 0.54], [0.58, 0.52],
+                  [0.48, 0.62], [0.46, 0.64], [0.44, 0.66], [0.42, 0.68], [0.40, 0.70],
+                  [0.60, 0.50], [0.62, 0.48], [0.64, 0.46], [0.66, 0.44], [0.68, 0.42],
+                  [0.38, 0.72], [0.36, 0.74], [0.34, 0.76], [0.32, 0.78], [0.30, 0.80],
+                  [0.70, 0.40]],
+        predicted_gesture="A",
+        confidence=0.95,
+        processing_time_ms=15.2,
+        model_version="v1.0.0",
+        user_id="demo_user"
+    )
+
+def make_dummy_model(model_id: UUID = None) -> ModelInfo:
+    """Create a dummy model info for demonstration."""
+    return ModelInfo(
+        id=model_id or uuid4(),
+        name="ASL Keypoint Classifier",
+        version="v1.0.0",
+        description="TensorFlow Lite model for ASL gesture recognition",
+        input_shape=[42],
+        output_classes=37,
+        model_type="classification",
+        accuracy=0.94,
+        is_active=True
+    )
+
+def make_dummy_prediction(prediction_id: UUID = None) -> PredictionRequest:
+    """Create a dummy prediction request for demonstration."""
+    dummy_input = GestureInput(
+        landmarks=[[0.5, 0.6], [0.52, 0.58], [0.54, 0.56], [0.56, 0.54], [0.58, 0.52],
+                  [0.48, 0.62], [0.46, 0.64], [0.44, 0.66], [0.42, 0.68], [0.40, 0.70],
+                  [0.60, 0.50], [0.62, 0.48], [0.64, 0.46], [0.66, 0.44], [0.68, 0.42],
+                  [0.38, 0.72], [0.36, 0.74], [0.34, 0.76], [0.32, 0.78], [0.30, 0.80],
+                  [0.70, 0.40]],
+        user_id="demo_user"
+    )
+    
+    return PredictionRequest(
+        id=prediction_id or uuid4(),
+        batch_name="Demo Batch Prediction",
+        model_id=uuid4(),
+        input_data=[dummy_input],
+        status="completed",
+        created_at=datetime.utcnow(),
+        completed_at=datetime.utcnow(),
+        results=[make_dummy_gesture()]
+    )
+
+# -----------------------------------------------------------------------------
+# Gesture Recognition Routes
+# -----------------------------------------------------------------------------
+
+@app.get("/gestures", response_model=List[GestureResult], tags=["gestures"])
+async def get_all_gestures():
+    """
+    Retrieve all gesture recognition results.
+    """
+    if not gestures_db:
+        # Return some dummy data for demonstration
+        dummy_gesture = make_dummy_gesture()
+        gestures_db[dummy_gesture.id] = dummy_gesture
+    
+    return list(gestures_db.values())
+
+@app.get("/gestures/{gesture_id}", response_model=GestureResult, tags=["gestures"])
+async def get_gesture(gesture_id: UUID):
+    """
+    Retrieve a specific gesture recognition result by ID.
+    """
+    if gesture_id not in gestures_db:
+        # Create dummy data if not found
+        dummy_gesture = make_dummy_gesture(gesture_id)
+        gestures_db[gesture_id] = dummy_gesture
+    
+    return gestures_db[gesture_id]
+
+@app.post("/gestures", response_model=GestureResult, status_code=status.HTTP_201_CREATED, tags=["gestures"])
+async def create_gesture_prediction(gesture_input: GestureInput):
+    """
+    Process hand landmarks and return gesture prediction.
+    """
+    # In production, this would call the actual ML model
+    # For now, return dummy prediction
+    result = GestureResult(
+        landmarks=gesture_input.landmarks,
+        predicted_gesture="A",  # Dummy prediction
+        confidence=0.95,
+        processing_time_ms=15.2,
+        model_version="v1.0.0",
+        user_id=gesture_input.user_id
+    )
+    
+    gestures_db[result.id] = result
+    return result
+
+@app.put("/gestures/{gesture_id}", response_model=GestureResult, tags=["gestures"])
+async def update_gesture(gesture_id: UUID, gesture_input: GestureInput):
+    """
+    Update a gesture recognition result (NOT IMPLEMENTED).
+    """
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="NOT IMPLEMENTED: Gesture update functionality not yet available"
+    )
+
+@app.delete("/gestures/{gesture_id}", tags=["gestures"])
+async def delete_gesture(gesture_id: UUID):
+    """
+    Delete a gesture recognition result.
+    """
+    if gesture_id in gestures_db:
+        del gestures_db[gesture_id]
+        return {"message": f"Gesture {gesture_id} deleted successfully"}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Gesture with ID {gesture_id} not found"
+        )
+
+# -----------------------------------------------------------------------------
+# Model Management Routes
+# -----------------------------------------------------------------------------
+
+@app.get("/models", response_model=List[ModelInfo], tags=["models"])
+async def get_all_models():
+    """
+    Retrieve all registered ML models.
+    """
+    if not models_db:
+        # Return some dummy data for demonstration
+        dummy_model = make_dummy_model()
+        models_db[dummy_model.id] = dummy_model
+    
+    return list(models_db.values())
+
+@app.get("/models/{model_id}", response_model=ModelInfo, tags=["models"])
+async def get_model(model_id: UUID):
+    """
+    Retrieve a specific ML model by ID.
+    """
+    if model_id not in models_db:
+        # Create dummy data if not found
+        dummy_model = make_dummy_model(model_id)
+        models_db[model_id] = dummy_model
+    
+    return models_db[model_id]
+
+@app.post("/models", response_model=ModelInfo, status_code=status.HTTP_201_CREATED, tags=["models"])
+async def register_model(model_input: ModelInput):
+    """
+    Register a new ML model.
+    """
+    model_info = ModelInfo(
+        name=model_input.name,
+        version=model_input.version,
+        description=model_input.description,
+        input_shape=model_input.input_shape,
+        output_classes=model_input.output_classes,
+        model_type=model_input.model_type
+    )
+    
+    models_db[model_info.id] = model_info
+    return model_info
+
+@app.put("/models/{model_id}", response_model=ModelInfo, tags=["models"])
+async def update_model(model_id: UUID, model_input: ModelInput):
+    """
+    Update an existing ML model (NOT IMPLEMENTED).
+    """
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="NOT IMPLEMENTED: Model update functionality not yet available"
+    )
+
+@app.delete("/models/{model_id}", tags=["models"])
+async def delete_model(model_id: UUID):
+    """
+    Delete an ML model registration.
+    """
+    if model_id in models_db:
+        del models_db[model_id]
+        return {"message": f"Model {model_id} deleted successfully"}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Model with ID {model_id} not found"
+        )
+
+# -----------------------------------------------------------------------------
+# Prediction Batch Routes
+# -----------------------------------------------------------------------------
+
+@app.get("/predictions", response_model=List[PredictionRequest], tags=["predictions"])
+async def get_all_predictions():
+    """
+    Retrieve all batch prediction requests.
+    """
+    if not predictions_db:
+        # Return some dummy data for demonstration
+        dummy_prediction = make_dummy_prediction()
+        predictions_db[dummy_prediction.id] = dummy_prediction
+    
+    return list(predictions_db.values())
+
+@app.get("/predictions/{prediction_id}", response_model=PredictionRequest, tags=["predictions"])
+async def get_prediction(prediction_id: UUID):
+    """
+    Retrieve a specific batch prediction request by ID.
+    """
+    if prediction_id not in predictions_db:
+        # Create dummy data if not found
+        dummy_prediction = make_dummy_prediction(prediction_id)
+        predictions_db[prediction_id] = dummy_prediction
+    
+    return predictions_db[prediction_id]
+
+@app.post("/predictions", response_model=PredictionRequest, status_code=status.HTTP_201_CREATED, tags=["predictions"])
+async def create_batch_prediction(prediction_request: PredictionRequest):
+    """
+    Create a new batch prediction request (NOT IMPLEMENTED).
+    """
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="NOT IMPLEMENTED: Batch prediction processing not yet available"
+    )
+
+@app.put("/predictions/{prediction_id}", response_model=PredictionRequest, tags=["predictions"])
+async def update_prediction(prediction_id: UUID, prediction_request: PredictionRequest):
+    """
+    Update a batch prediction request (NOT IMPLEMENTED).
+    """
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="NOT IMPLEMENTED: Prediction update functionality not yet available"
+    )
+
+@app.delete("/predictions/{prediction_id}", tags=["predictions"])
+async def delete_prediction(prediction_id: UUID):
+    """
+    Delete a batch prediction request.
+    """
+    if prediction_id in predictions_db:
+        del predictions_db[prediction_id]
+        return {"message": f"Prediction request {prediction_id} deleted successfully"}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Prediction request with ID {prediction_id} not found"
+        )
+
+# -----------------------------------------------------------------------------
+# Health and Info Routes
+# -----------------------------------------------------------------------------
+
+@app.get("/", tags=["health"])
+async def root():
+    """
+    Root endpoint providing basic service information.
+    """
+    return {
+        "service": "Model Serving Microservice",
+        "version": "1.0.0",
+        "description": "A microservice for serving machine learning models for hand gesture recognition",
+        "endpoints": {
+            "docs": "/docs",
+            "redoc": "/redoc",
+            "health": "/health",
+            "gestures": "/gestures",
+            "models": "/models",
+            "predictions": "/predictions"
+        }
+    }
+
+@app.get("/health", tags=["health"])
+async def health_check():
+    """
+    Health check endpoint for monitoring and load balancing.
+    """
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "service": "Model Serving Microservice",
+        "version": "1.0.0",
+        "database_status": "connected",  # In production, check actual DB connection
+        "model_status": "loaded"  # In production, check if models are loaded
+    }
+
+# -----------------------------------------------------------------------------
+# Run the application
+# -----------------------------------------------------------------------------
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=True)
