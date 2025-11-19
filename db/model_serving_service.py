@@ -23,22 +23,41 @@ class ModelsMySQLService(AbstractBaseMySQLService):
         conn = self.get_connection()
         cur: MySQLCursor = conn.cursor()
 
+        # sql = """
+        # INSERT INTO models
+        # (name, version, model_type, artifact_uri, input_shape, output_shape, status, metrics, sha256)
+        # VALUES (%s, %s, %s, %s, CAST(%s AS JSON), CAST(%s AS JSON), %s, CAST(%s AS JSON), %s)
+        # """
+        # params = (
+        #     data["name"],
+        #     data["version"],
+        #     data["model_type"],
+        #     data["artifact_uri"],
+        #     json.dumps(data["input_shape"]),
+        #     json.dumps(data["output_shape"]),
+        #     data.get("status", "active"),
+        #     json.dumps(data.get("metrics")) if data.get("metrics") is not None else "null",
+        #     data.get("sha256"),
+        # )
+
+        # AFTER
         sql = """
         INSERT INTO models
         (name, version, model_type, artifact_uri, input_shape, output_shape, status, metrics, sha256)
-        VALUES (%s, %s, %s, %s, CAST(%s AS JSON), CAST(%s AS JSON), %s, CAST(%s AS JSON), %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         params = (
             data["name"],
             data["version"],
             data["model_type"],
             data["artifact_uri"],
-            json.dumps(data["input_shape"]),
-            json.dumps(data["output_shape"]),
+            json.dumps(data["input_shape"]),  # store as text
+            json.dumps(data["output_shape"]), # store as text
             data.get("status", "active"),
-            json.dumps(data.get("metrics")) if data.get("metrics") is not None else "null",
+            json.dumps(data.get("metrics")) if data.get("metrics") is not None else None,  # real NULL
             data.get("sha256"),
         )
+
 
         try:
             cur.execute(sql, params)
@@ -100,10 +119,15 @@ class GesturesMySQLService(AbstractBaseMySQLService):
         conn = self.get_connection()
         cur: MySQLCursor = conn.cursor()
 
+        # sql = """
+        # INSERT INTO gestures
+        # (session_id, user_id, landmarks, frame_width, frame_height, source, received_at)
+        # VALUES (%s, %s, CAST(%s AS JSON), %s, %s, %s, %s)
+        # """
         sql = """
         INSERT INTO gestures
         (session_id, user_id, landmarks, frame_width, frame_height, source, received_at)
-        VALUES (%s, %s, CAST(%s AS JSON), %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         """
         params = (
             data.get("session_id"),
@@ -153,7 +177,8 @@ class GesturesMySQLService(AbstractBaseMySQLService):
             model_id,
             predicted_label,
             confidence,
-            json.dumps(probs) if probs is not None else "null",
+            # json.dumps(probs) if probs is not None else "null",
+            json.dumps(probs) if probs is not None else None,
             processing_time_ms,
             gesture_id,
         )
@@ -231,11 +256,17 @@ class PredictionsMySQLService(AbstractBaseMySQLService):
         conn = self.get_connection()
         cur: MySQLCursor = conn.cursor()
 
+        # sql = """
+        # INSERT INTO predictions
+        # (requestor_user_id, session_id, model_id, status, params, created_at)
+        # VALUES (%s, %s, %s, %s, CAST(%s AS JSON), NOW())
+        # """
         sql = """
         INSERT INTO predictions
         (requestor_user_id, session_id, model_id, status, params, created_at)
-        VALUES (%s, %s, %s, %s, CAST(%s AS JSON), NOW())
+        VALUES (%s, %s, %s, %s, %s, NOW())
         """
+
         params = (
             data.get("requestor_user_id"),
             data.get("session_id"),
