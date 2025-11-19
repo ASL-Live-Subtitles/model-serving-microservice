@@ -163,6 +163,16 @@ class GesturesMySQLService(AbstractBaseMySQLService):
         conn = self.get_connection()
         cur: MySQLCursor = conn.cursor()
 
+        # sql = """
+        # UPDATE gestures
+        # SET model_id=%s,
+        #     predicted_label=%s,
+        #     confidence=%s,
+        #     probs=CAST(%s AS JSON),
+        #     processing_time_ms=%s,
+        #     processed_at=NOW()
+        # WHERE gesture_id=%s
+        # """
         sql = """
         UPDATE gestures
         SET model_id=%s,
@@ -173,6 +183,7 @@ class GesturesMySQLService(AbstractBaseMySQLService):
             processed_at=NOW()
         WHERE gesture_id=%s
         """
+
         params = (
             model_id,
             predicted_label,
@@ -226,8 +237,62 @@ class GesturesMySQLService(AbstractBaseMySQLService):
         finally:
             cur.close()
 
-    def update(self, *args, **kwargs) -> Any:
-        raise NotImplementedError("PUT /gestures/{id} not implemented")
+
+    # def update(self, *args, **kwargs) -> Any:
+    #     raise NotImplementedError("PUT /gestures/{id} not implemented")
+
+
+    def get_one(self, gesture_id: int) -> Optional[Dict[str, Any]]:
+        conn = self.get_connection()
+        cur: MySQLCursor = conn.cursor(dictionary=True)
+        try:
+            cur.execute("SELECT * FROM gestures WHERE gesture_id=%s", (gesture_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+        finally:
+            cur.close()
+
+    def update(self, gesture_id: int, data: Dict[str, Any]) -> bool:
+        """
+        Two supported update modes:
+        1) Update landmarks/metadata (if 'landmarks' present)
+        2) Attach inference fields (if 'predicted_label' present) — delegates to attach_inference
+        """
+        # Inference update
+        if "predicted_label" in data:
+            return self.attach_inference(
+                gesture_id=gesture_id,
+                model_id=data.get("model_id"),
+                predicted_label=data["predicted_label"],
+                confidence=data.get("confidence", 0.0),
+                probs=data.get("probs"),
+                processing_time_ms=data.get("processing_time_ms"),
+            )
+
+        # Landmarks/metadata update
+        sets, params = [], []
+        if "landmarks" in data:
+            sets.append("landmarks=%s")
+            params.append(json.dumps(data["landmarks"]))
+        for k in ("user_id", "session_id", "frame_width", "frame_height", "source"):
+            if k in data:
+                sets.append(f"{k}=%s")
+                params.append(data[k])
+
+        if not sets:
+            return False  # nothing to update
+
+        sql = f"UPDATE gestures SET {', '.join(sets)} WHERE gesture_id=%s"
+        params.append(gesture_id)
+
+        conn = self.get_connection()
+        cur: MySQLCursor = conn.cursor()
+        try:
+            cur.execute(sql, tuple(params))
+            return cur.rowcount > 0
+        finally:
+            cur.close()
+
 
     def delete(self, gesture_id: int) -> bool:
         conn = self.get_connection()
@@ -355,9 +420,50 @@ class PredictionsMySQLService(AbstractBaseMySQLService):
             raise
         finally:
             cur.close()
+    def get_one(self, prediction_id: int) -> Optional[Dict[str, Any]]:
+        conn = self.get_connection()
+        cur: MySQLCursor = conn.cursor(dictionary=True)
+        try:
+            cur.execute("SELECT * FROM predictions WHERE prediction_id=%s", (prediction_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+        finally:
+            cur.close()
 
-    def update(self, *args, **kwargs) -> Any:
-        raise NotImplementedError("PUT /predictions/{id} not implemented")
+    # def update(self, *args, **kwargs) -> Any:
+    #     raise NotImplementedError("PUT /predictions/{id} not implemented")
+
+
+    def update(self, prediction_id: int, data: Dict[str, Any]) -> bool:
+        """
+        Update status or mark complete/failed.
+        If 'error_message' in data -> failed
+        If 'output_text' in data -> succeeded (optionally with confidence/latency_ms)
+        Else if 'status' in data -> simple status update
+        """
+        # Completed/failed paths reuse mark_complete
+        if "error_message" in data or "output_text" in data:
+            return self.mark_complete(
+                prediction_id=prediction_id,
+                output_text=data.get("output_text", ""),
+                confidence=data.get("confidence"),
+                latency_ms=data.get("latency_ms"),
+                error_message=data.get("error_message"),
+            )
+
+        # Simple status change (e.g., queued -> running)
+        if "status" in data:
+            conn = self.get_connection()
+            cur: MySQLCursor = conn.cursor()
+            try:
+                cur.execute("UPDATE predictions SET status=%s WHERE prediction_id=%s",
+                            (data["status"], prediction_id))
+                return cur.rowcount > 0
+            finally:
+                cur.close()
+
+        return False
+
 
     def delete(self, prediction_id: int) -> bool:
         conn = self.get_connection()

@@ -111,72 +111,135 @@ def make_dummy_prediction(prediction_id: UUID = None) -> PredictionRequest:
 # Gesture Recognition Routes
 # -----------------------------------------------------------------------------
 
-@app.get("/gestures", response_model=List[GestureResult], tags=["gestures"])
-async def get_all_gestures():
-    """
-    Retrieve all gesture recognition results.
-    """
-    if not gestures_db:
-        # Return some dummy data for demonstration
-        dummy_gesture = make_dummy_gesture()
-        gestures_db[dummy_gesture.id] = dummy_gesture
+# @app.get("/gestures", response_model=List[GestureResult], tags=["gestures"])
+# async def get_all_gestures():
+#     """
+#     Retrieve all gesture recognition results.
+#     """
+#     if not gestures_db:
+#         # Return some dummy data for demonstration
+#         dummy_gesture = make_dummy_gesture()
+#         gestures_db[dummy_gesture.id] = dummy_gesture
     
-    return list(gestures_db.values())
+#     return list(gestures_db.values())
 
-@app.get("/gestures/{gesture_id}", response_model=GestureResult, tags=["gestures"])
-async def get_gesture(gesture_id: UUID):
-    """
-    Retrieve a specific gesture recognition result by ID.
-    """
-    if gesture_id not in gestures_db:
-        # Create dummy data if not found
-        dummy_gesture = make_dummy_gesture(gesture_id)
-        gestures_db[gesture_id] = dummy_gesture
+# @app.get("/gestures/{gesture_id}", response_model=GestureResult, tags=["gestures"])
+# async def get_gesture(gesture_id: UUID):
+#     """
+#     Retrieve a specific gesture recognition result by ID.
+#     """
+#     if gesture_id not in gestures_db:
+#         # Create dummy data if not found
+#         dummy_gesture = make_dummy_gesture(gesture_id)
+#         gestures_db[gesture_id] = dummy_gesture
     
-    return gestures_db[gesture_id]
+#     return gestures_db[gesture_id]
 
-@app.post("/gestures", response_model=GestureResult, status_code=status.HTTP_201_CREATED, tags=["gestures"])
-async def create_gesture_prediction(gesture_input: GestureInput):
-    """
-    Process hand landmarks and return gesture prediction.
-    """
-    # In production, this would call the actual ML model
-    # For now, return dummy prediction
-    result = GestureResult(
-        landmarks=gesture_input.landmarks,
-        predicted_gesture="A",  # Dummy prediction
-        confidence=0.95,
-        processing_time_ms=15.2,
-        model_version="v1.0.0",
-        user_id=gesture_input.user_id
-    )
+# @app.post("/gestures", response_model=GestureResult, status_code=status.HTTP_201_CREATED, tags=["gestures"])
+# async def create_gesture_prediction(gesture_input: GestureInput):
+#     """
+#     Process hand landmarks and return gesture prediction.
+#     """
+#     # In production, this would call the actual ML model
+#     # For now, return dummy prediction
+#     result = GestureResult(
+#         landmarks=gesture_input.landmarks,
+#         predicted_gesture="A",  # Dummy prediction
+#         confidence=0.95,
+#         processing_time_ms=15.2,
+#         model_version="v1.0.0",
+#         user_id=gesture_input.user_id
+#     )
     
-    gestures_db[result.id] = result
-    return result
+#     gestures_db[result.id] = result
+#     return result
 
-@app.put("/gestures/{gesture_id}", response_model=GestureResult, tags=["gestures"])
-async def update_gesture(gesture_id: UUID, gesture_input: GestureInput):
-    """
-    Update a gesture recognition result (NOT IMPLEMENTED).
-    """
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="NOT IMPLEMENTED: Gesture update functionality not yet available"
-    )
+# @app.put("/gestures/{gesture_id}", response_model=GestureResult, tags=["gestures"])
+# async def update_gesture(gesture_id: UUID, gesture_input: GestureInput):
+#     """
+#     Update a gesture recognition result (NOT IMPLEMENTED).
+#     """
+#     raise HTTPException(
+#         status_code=status.HTTP_501_NOT_IMPLEMENTED,
+#         detail="NOT IMPLEMENTED: Gesture update functionality not yet available"
+#     )
 
+# @app.delete("/gestures/{gesture_id}", tags=["gestures"])
+# async def delete_gesture(gesture_id: UUID):
+#     """
+#     Delete a gesture recognition result.
+#     """
+#     if gesture_id in gestures_db:
+#         del gestures_db[gesture_id]
+#         return {"message": f"Gesture {gesture_id} deleted successfully"}
+#     else:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail=f"Gesture with ID {gesture_id} not found"
+#         )
+
+from fastapi import Body
+
+# List
+@app.get("/gestures", tags=["gestures"])
+def list_gestures(
+    user_id: str | None = None,
+    limit: int = 100,
+    svc: GesturesMySQLService = Depends(get_gestures_service),
+):
+    return svc.retrieve(user_id=user_id, limit=limit)
+
+# Get one
+@app.get("/gestures/{gesture_id}", tags=["gestures"])
+def get_gesture(gesture_id: int, svc: GesturesMySQLService = Depends(get_gestures_service)):
+    row = svc.get_one(gesture_id)
+    if not row:
+        raise HTTPException(404, "Gesture not found")
+    # If you want to return parsed JSON for landmarks/probs:
+    for col in ("landmarks", "probs"):
+        if row.get(col):
+            try:
+                row[col] = json.loads(row[col])
+            except Exception:
+                pass
+    return row
+
+# Create
+@app.post("/gestures", tags=["gestures"], status_code=status.HTTP_201_CREATED)
+def create_gesture(
+    gesture_input: GestureInput,
+    svc: GesturesMySQLService = Depends(get_gestures_service),
+):
+    if len(gesture_input.landmarks) < 21:
+        raise HTTPException(400, "landmarks must have at least 21 points")
+
+    gid = svc.create({
+        "landmarks": gesture_input.landmarks,
+        "user_id": gesture_input.user_id,
+        "source": "api",
+    })
+    return {"gesture_id": gid}
+
+# Update (either landmarks OR inference)
+@app.put("/gestures/{gesture_id}", tags=["gestures"])
+def update_gesture(
+    gesture_id: int,
+    payload: dict = Body(...),  # e.g., {"landmarks":[...]} OR {"predicted_label":"A", "confidence":0.95, ...}
+    svc: GesturesMySQLService = Depends(get_gestures_service),
+):
+    ok = svc.update(gesture_id, payload)
+    if not ok:
+        raise HTTPException(404, "Gesture not found or nothing to update")
+    return {"updated": True}
+
+# Delete
 @app.delete("/gestures/{gesture_id}", tags=["gestures"])
-async def delete_gesture(gesture_id: UUID):
-    """
-    Delete a gesture recognition result.
-    """
-    if gesture_id in gestures_db:
-        del gestures_db[gesture_id]
-        return {"message": f"Gesture {gesture_id} deleted successfully"}
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Gesture with ID {gesture_id} not found"
-        )
+def delete_gesture(gesture_id: int, svc: GesturesMySQLService = Depends(get_gestures_service)):
+    ok = svc.delete(gesture_id)
+    if not ok:
+        raise HTTPException(404, "Gesture not found")
+    return {"deleted": True}
+
 
 # -----------------------------------------------------------------------------
 # Model Management Routes
@@ -281,65 +344,124 @@ def delete_model(model_id: int, svc: ModelsMySQLService = Depends(get_models_ser
 
 # -----------------------------------------------------------------------------
 # Prediction Batch Routes
-# -----------------------------------------------------------------------------
+# # -----------------------------------------------------------------------------
 
-@app.get("/predictions", response_model=List[PredictionRequest], tags=["predictions"])
-async def get_all_predictions():
-    """
-    Retrieve all batch prediction requests.
-    """
-    if not predictions_db:
-        # Return some dummy data for demonstration
-        dummy_prediction = make_dummy_prediction()
-        predictions_db[dummy_prediction.id] = dummy_prediction
+# @app.get("/predictions", response_model=List[PredictionRequest], tags=["predictions"])
+# async def get_all_predictions():
+#     """
+#     Retrieve all batch prediction requests.
+#     """
+#     if not predictions_db:
+#         # Return some dummy data for demonstration
+#         dummy_prediction = make_dummy_prediction()
+#         predictions_db[dummy_prediction.id] = dummy_prediction
     
-    return list(predictions_db.values())
+#     return list(predictions_db.values())
 
-@app.get("/predictions/{prediction_id}", response_model=PredictionRequest, tags=["predictions"])
-async def get_prediction(prediction_id: UUID):
-    """
-    Retrieve a specific batch prediction request by ID.
-    """
-    if prediction_id not in predictions_db:
-        # Create dummy data if not found
-        dummy_prediction = make_dummy_prediction(prediction_id)
-        predictions_db[prediction_id] = dummy_prediction
+# @app.get("/predictions/{prediction_id}", response_model=PredictionRequest, tags=["predictions"])
+# async def get_prediction(prediction_id: UUID):
+#     """
+#     Retrieve a specific batch prediction request by ID.
+#     """
+#     if prediction_id not in predictions_db:
+#         # Create dummy data if not found
+#         dummy_prediction = make_dummy_prediction(prediction_id)
+#         predictions_db[prediction_id] = dummy_prediction
     
-    return predictions_db[prediction_id]
+#     return predictions_db[prediction_id]
 
-@app.post("/predictions", response_model=PredictionRequest, status_code=status.HTTP_201_CREATED, tags=["predictions"])
-async def create_batch_prediction(prediction_request: PredictionRequest):
-    """
-    Create a new batch prediction request (NOT IMPLEMENTED).
-    """
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="NOT IMPLEMENTED: Batch prediction processing not yet available"
-    )
+# @app.post("/predictions", response_model=PredictionRequest, status_code=status.HTTP_201_CREATED, tags=["predictions"])
+# async def create_batch_prediction(prediction_request: PredictionRequest):
+#     """
+#     Create a new batch prediction request (NOT IMPLEMENTED).
+#     """
+#     raise HTTPException(
+#         status_code=status.HTTP_501_NOT_IMPLEMENTED,
+#         detail="NOT IMPLEMENTED: Batch prediction processing not yet available"
+#     )
 
-@app.put("/predictions/{prediction_id}", response_model=PredictionRequest, tags=["predictions"])
-async def update_prediction(prediction_id: UUID, prediction_request: PredictionRequest):
-    """
-    Update a batch prediction request (NOT IMPLEMENTED).
-    """
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="NOT IMPLEMENTED: Prediction update functionality not yet available"
-    )
+# @app.put("/predictions/{prediction_id}", response_model=PredictionRequest, tags=["predictions"])
+# async def update_prediction(prediction_id: UUID, prediction_request: PredictionRequest):
+#     """
+#     Update a batch prediction request (NOT IMPLEMENTED).
+#     """
+#     raise HTTPException(
+#         status_code=status.HTTP_501_NOT_IMPLEMENTED,
+#         detail="NOT IMPLEMENTED: Prediction update functionality not yet available"
+#     )
 
+# @app.delete("/predictions/{prediction_id}", tags=["predictions"])
+# async def delete_prediction(prediction_id: UUID):
+#     """
+#     Delete a batch prediction request.
+#     """
+#     if prediction_id in predictions_db:
+#         del predictions_db[prediction_id]
+#         return {"message": f"Prediction request {prediction_id} deleted successfully"}
+#     else:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail=f"Prediction request with ID {prediction_id} not found"
+#         )
+
+# List
+@app.get("/predictions", tags=["predictions"])
+def list_predictions(
+    session_id: int | None = None,
+    limit: int = 100,
+    svc: PredictionsMySQLService = Depends(get_predictions_service),
+):
+    return svc.retrieve(session_id=session_id, limit=limit)
+
+# Get one
+@app.get("/predictions/{prediction_id}", tags=["predictions"])
+def get_prediction(prediction_id: int, svc: PredictionsMySQLService = Depends(get_predictions_service)):
+    row = svc.get_one(prediction_id)
+    if not row:
+        raise HTTPException(404, "Prediction not found")
+    # If params is JSON text, parse it for nicer API output
+    if row.get("params"):
+        try:
+            row["params"] = json.loads(row["params"])
+        except Exception:
+            pass
+    return row
+
+# Create
+@app.post("/predictions", tags=["predictions"], status_code=status.HTTP_201_CREATED)
+def create_prediction(
+    payload: dict = Body(...),  # or a dedicated Pydantic model if you want stricter validation
+    svc: PredictionsMySQLService = Depends(get_predictions_service),
+):
+    pid = svc.create({
+        "requestor_user_id": payload.get("requestor_user_id"),
+        "session_id": payload.get("session_id"),
+        "model_id": payload.get("model_id"),
+        "status": payload.get("status", "queued"),
+        "params": payload.get("params", {}),
+    })
+    return {"prediction_id": pid, "status": "queued"}
+
+# Update (status or completion)
+@app.put("/predictions/{prediction_id}", tags=["predictions"])
+def update_prediction(
+    prediction_id: int,
+    payload: dict = Body(...),  # e.g., {"status":"running"} OR {"output_text":"...", "confidence":0.9}
+    svc: PredictionsMySQLService = Depends(get_predictions_service),
+):
+    ok = svc.update(prediction_id, payload)
+    if not ok:
+        raise HTTPException(404, "Prediction not found or nothing to update")
+    return {"updated": True}
+
+# Delete
 @app.delete("/predictions/{prediction_id}", tags=["predictions"])
-async def delete_prediction(prediction_id: UUID):
-    """
-    Delete a batch prediction request.
-    """
-    if prediction_id in predictions_db:
-        del predictions_db[prediction_id]
-        return {"message": f"Prediction request {prediction_id} deleted successfully"}
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Prediction request with ID {prediction_id} not found"
-        )
+def delete_prediction(prediction_id: int, svc: PredictionsMySQLService = Depends(get_predictions_service)):
+    ok = svc.delete(prediction_id)
+    if not ok:
+        raise HTTPException(404, "Prediction not found")
+    return {"deleted": True}
+
 
 # -----------------------------------------------------------------------------
 # Health and Info Routes
