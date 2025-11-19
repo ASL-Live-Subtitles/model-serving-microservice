@@ -9,6 +9,19 @@ from models.gesture import (
     PredictionRequest
 )
 
+import os
+from dotenv import load_dotenv
+load_dotenv()  # so DB_* vars from .env are available
+
+from fastapi import Depends
+from db.model_serving_service import (
+    ModelsMySQLService, GesturesMySQLService, PredictionsMySQLService
+)
+
+def get_models_service(): return ModelsMySQLService()
+def get_gestures_service(): return GesturesMySQLService()
+def get_predictions_service(): return PredictionsMySQLService()
+
 # Initialize FastAPI app with OpenAPI documentation
 app = FastAPI(
     title="Model Serving Microservice",
@@ -169,70 +182,102 @@ async def delete_gesture(gesture_id: UUID):
 # Model Management Routes
 # -----------------------------------------------------------------------------
 
-@app.get("/models", response_model=List[ModelInfo], tags=["models"])
-async def get_all_models():
-    """
-    Retrieve all registered ML models.
-    """
-    if not models_db:
-        # Return some dummy data for demonstration
-        dummy_model = make_dummy_model()
-        models_db[dummy_model.id] = dummy_model
+# @app.get("/models", response_model=List[ModelInfo], tags=["models"])
+# async def get_all_models():
+#     """
+#     Retrieve all registered ML models.
+#     """
+#     if not models_db:
+#         # Return some dummy data for demonstration
+#         dummy_model = make_dummy_model()
+#         models_db[dummy_model.id] = dummy_model
     
-    return list(models_db.values())
+#     return list(models_db.values())
 
-@app.get("/models/{model_id}", response_model=ModelInfo, tags=["models"])
-async def get_model(model_id: UUID):
-    """
-    Retrieve a specific ML model by ID.
-    """
-    if model_id not in models_db:
-        # Create dummy data if not found
-        dummy_model = make_dummy_model(model_id)
-        models_db[model_id] = dummy_model
+# @app.get("/models/{model_id}", response_model=ModelInfo, tags=["models"])
+# async def get_model(model_id: UUID):
+#     """
+#     Retrieve a specific ML model by ID.
+#     """
+#     if model_id not in models_db:
+#         # Create dummy data if not found
+#         dummy_model = make_dummy_model(model_id)
+#         models_db[model_id] = dummy_model
     
-    return models_db[model_id]
+#     return models_db[model_id]
 
-@app.post("/models", response_model=ModelInfo, status_code=status.HTTP_201_CREATED, tags=["models"])
-async def register_model(model_input: ModelInput):
-    """
-    Register a new ML model.
-    """
-    model_info = ModelInfo(
-        name=model_input.name,
-        version=model_input.version,
-        description=model_input.description,
-        input_shape=model_input.input_shape,
-        output_classes=model_input.output_classes,
-        model_type=model_input.model_type
-    )
+# @app.post("/models", response_model=ModelInfo, status_code=status.HTTP_201_CREATED, tags=["models"])
+# async def register_model(model_input: ModelInput):
+#     """
+#     Register a new ML model.
+#     """
+#     model_info = ModelInfo(
+#         name=model_input.name,
+#         version=model_input.version,
+#         description=model_input.description,
+#         input_shape=model_input.input_shape,
+#         output_classes=model_input.output_classes,
+#         model_type=model_input.model_type
+#     )
     
-    models_db[model_info.id] = model_info
-    return model_info
+#     models_db[model_info.id] = model_info
+#     return model_info
 
-@app.put("/models/{model_id}", response_model=ModelInfo, tags=["models"])
-async def update_model(model_id: UUID, model_input: ModelInput):
-    """
-    Update an existing ML model (NOT IMPLEMENTED).
-    """
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="NOT IMPLEMENTED: Model update functionality not yet available"
-    )
+# @app.put("/models/{model_id}", response_model=ModelInfo, tags=["models"])
+# async def update_model(model_id: UUID, model_input: ModelInput):
+#     """
+#     Update an existing ML model (NOT IMPLEMENTED).
+#     """
+#     raise HTTPException(
+#         status_code=status.HTTP_501_NOT_IMPLEMENTED,
+#         detail="NOT IMPLEMENTED: Model update functionality not yet available"
+#     )
+
+# @app.delete("/models/{model_id}", tags=["models"])
+# async def delete_model(model_id: UUID):
+#     """
+#     Delete an ML model registration.
+#     """
+#     if model_id in models_db:
+#         del models_db[model_id]
+#         return {"message": f"Model {model_id} deleted successfully"}
+#     else:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail=f"Model with ID {model_id} not found"
+#         )
+
+@app.get("/models", tags=["models"])
+def get_all_models(svc: ModelsMySQLService = Depends(get_models_service)):
+    return svc.retrieve()
+
+@app.get("/models/{model_id}", tags=["models"])
+def get_model(model_id: int, svc: ModelsMySQLService = Depends(get_models_service)):
+    rows = svc.retrieve(model_id=model_id)
+    if not rows:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return rows[0]
+
+@app.post("/models", tags=["models"], status_code=status.HTTP_201_CREATED)
+def register_model(model_input: ModelInput, svc: ModelsMySQLService = Depends(get_models_service)):
+    payload = {
+        "name": model_input.name,
+        "version": model_input.version,
+        "model_type": model_input.model_type,
+        "artifact_uri": getattr(model_input, "model_path", None) or "/models/unknown.bin",
+        "input_shape": model_input.input_shape,
+        "output_shape": [model_input.output_classes],
+    }
+    mid = svc.create(payload)
+    return {"model_id": mid}
 
 @app.delete("/models/{model_id}", tags=["models"])
-async def delete_model(model_id: UUID):
-    """
-    Delete an ML model registration.
-    """
-    if model_id in models_db:
-        del models_db[model_id]
-        return {"message": f"Model {model_id} deleted successfully"}
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Model with ID {model_id} not found"
-        )
+def delete_model(model_id: int, svc: ModelsMySQLService = Depends(get_models_service)):
+    ok = svc.delete(model_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return {"deleted": True}
+
 
 # -----------------------------------------------------------------------------
 # Prediction Batch Routes
@@ -319,19 +364,43 @@ async def root():
         }
     }
 
+# @app.get("/health", tags=["health"])
+# async def health_check():
+#     """
+#     Health check endpoint for monitoring and load balancing.
+#     """
+#     return {
+#         "status": "healthy",
+#         "timestamp": datetime.utcnow().isoformat(),
+#         "service": "Model Serving Microservice",
+#         "version": "1.0.0",
+#         "database_status": "connected",  # In production, check actual DB connection
+#         "model_status": "loaded"  # In production, check if models are loaded
+#     }
+
 @app.get("/health", tags=["health"])
 async def health_check():
-    """
-    Health check endpoint for monitoring and load balancing.
-    """
+    db_ok = False
+    try:
+        svc = ModelsMySQLService()
+        conn = svc.get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT 1;")
+        cur.fetchone()
+        cur.close()
+        db_ok = True
+    except Exception:
+        db_ok = False
+
     return {
-        "status": "healthy",
+        "status": "healthy" if db_ok else "degraded",
         "timestamp": datetime.utcnow().isoformat(),
         "service": "Model Serving Microservice",
         "version": "1.0.0",
-        "database_status": "connected",  # In production, check actual DB connection
-        "model_status": "loaded"  # In production, check if models are loaded
+        "database_status": "connected" if db_ok else "unreachable",
+        "model_status": "loaded"
     }
+
 
 # -----------------------------------------------------------------------------
 # Run the application
