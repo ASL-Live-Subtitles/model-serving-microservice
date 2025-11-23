@@ -4,6 +4,19 @@
 
 The ASL Live Subtitles Model Serving Microservice is a FastAPI-based service designed to provide real-time American Sign Language (ASL) recognition and translation capabilities. This microservice serves as the core ML inference engine for converting hand gestures into text, progressing from letter-level recognition to full sentence generation with AI assistance.
 
+See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment instructions.
+
+**Quick deploy:**
+
+```bash
+./deploy-to-gcp.sh
+```
+
+**Current deployment:**
+
+- URL: http://34.132.238.32:8001
+- Swagger UI: http://34.132.238.32:8001/docs
+
 ## Quick Start
 
 ### Prerequisites
@@ -180,21 +193,24 @@ model-serving-microservice/
 
 ## Deployment
 
-This microservice is designed to be deployed in a containerized environment:
+See [DEPLOYMENT.md](DEPLOYMENT.md) for:
 
-### Docker
+- Google Cloud Compute Engine (VM)
+- Google Cloud Run (serverless)
+- Local Docker setup
+- Management commands
+- Troubleshooting
+
+### Local Development
 
 ```bash
-# Build the image
-docker build -t asl-model-serving .
+# Docker
+docker-compose up
 
-# Run the container
-docker run -p 8000:8000 asl-model-serving
+# Or direct
+docker build -t model-serving .
+docker run -p 8001:8001 model-serving
 ```
-
-### Kubernetes
-
-The service includes Helm charts for Kubernetes deployment (see parent project documentation).
 
 ## Contributing
 
