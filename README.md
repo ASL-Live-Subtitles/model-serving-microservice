@@ -54,6 +54,76 @@ The service will be available at:
 
 ## API Endpoints
 
+### Database Spec
+
+- User (users)
+  - user_id PK
+  - display_name
+  - created_at
+
+- Session (sessions)
+  - session_id PK
+  - user_id FK -> users.user_id
+  - device_label
+  - started_at
+  - ended_at
+
+- Model (models)
+  - model_id PK
+  - name
+  - version
+  - model_type
+  - artifact_uri
+  - input_shape (JSON)
+  - output_shape (JSON)
+  - status
+  - metrics (JSON)
+  - sha256
+  - created_at
+  - updated_at
+
+- Gesture (gestures)
+  - gesture_id PK
+  - session_id FK -> sessions.session_id
+  - user_id FK -> users.user_id
+  - landmarks (JSON)
+  - frame_width
+  - frame_height
+  - source
+  - received_at
+  - model_id FK -> models.model_id
+  - predicted_label
+  - confidence
+  - probs (JSON)
+  - processing_time_ms
+  - processed_at
+
+- Prediction (predictions)
+  - prediction_id PK
+  - requestor_user_id FK -> users.user_id
+  - session_id FK -> sessions.session_id
+  - model_id FK -> models.model_id
+  - status
+  - created_at
+  - started_at
+  - completed_at
+  - params (JSON)
+  - output_text
+  - confidence
+  - latency_ms
+  - error_message
+
+- Caption (captions)
+  - caption_id PK
+  - session_id FK -> sessions.session_id
+  - prediction_id FK -> predictions.prediction_id
+  - start_ms
+  - end_ms
+  - text
+  - source
+  - confidence
+
+
 ### Core Resources
 
 #### 🤲 Gestures
