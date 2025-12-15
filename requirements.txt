@@ -3,3 +3,12 @@ uvicorn[standard]==0.24.0
 pydantic==2.5.0
 python-multipart==0.0.6
 typing-extensions==4.8.0
+# Pin numpy/opencv versions known to work with MediaPipe on Apple Silicon.
+numpy==1.26.4
+opencv-python-headless==4.8.1.78
+Pillow==10.1.0
+# MediaPipe is optional; when unavailable we fall back to stub landmarks.
+mediapipe==0.10.8
+# OpenAI client for gloss inference (falls back to heuristic if API key missing)
+openai==1.14.3
+aiomysql==0.2.0
