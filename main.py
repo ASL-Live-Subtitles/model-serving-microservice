@@ -259,17 +259,21 @@ async def get_pool():
     DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, DB_SOCKET (optional).
     """
     if not hasattr(app.state, "db_pool"):
-        app.state.db_pool = await aiomysql.create_pool(
-            host=os.getenv("DB_HOST", "127.0.0.1"),
-            port=int(os.getenv("DB_PORT", "3306")),
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASSWORD"),
-            db=os.getenv("DB_NAME", "model_serving_db"),
-            unix_socket=os.getenv("DB_SOCKET") or None,
-            autocommit=True,
-        )
+        try:
+            app.state.db_pool = await aiomysql.create_pool(
+                host=os.getenv("DB_HOST", "127.0.0.1"),
+                port=int(os.getenv("DB_PORT", "3306")),
+                user=os.getenv("DB_USER"),
+                password=os.getenv("DB_PASSWORD"),
+                db=os.getenv("DB_NAME", "model_serving_db"),
+                unix_socket=os.getenv("DB_SOCKET") or None,
+                autocommit=True,
+            )
+        except Exception as e:
+            # Fallback for development if DB is not available
+            print(f"Warning: Database connection failed ({e}). Running without DB.")
+            return None
     return app.state.db_pool
-
 
 async def save_video_gloss_request(
     pool,
@@ -282,6 +286,8 @@ async def save_video_gloss_request(
     raw_openai: Optional[dict],
     detected: bool,
 ):
+    if not pool:
+        return
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
