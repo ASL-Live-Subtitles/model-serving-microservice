@@ -48,6 +48,59 @@ class LandmarkInput(BaseModel):
     }
 
 
+class LandmarkUpdate(BaseModel):
+    """Update payload for an existing landmark."""
+
+    session_id: Optional[str] = Field(
+        None,
+        description="Session identifier",
+        json_schema_extra={"example": "session-123"},
+    )
+    user_id: Optional[str] = Field(
+        None,
+        description="User identifier",
+        json_schema_extra={"example": "user-abc"},
+    )
+    landmarks: Optional[List[List[float]]] = Field(
+        None,
+        description="Updated 21 hand landmarks (x,y)",
+        min_items=21,
+        max_items=21,
+        json_schema_extra={
+            "example": [
+                [0.5, 0.6], [0.52, 0.58], [0.54, 0.56], [0.56, 0.54], [0.58, 0.52],
+                [0.48, 0.62], [0.46, 0.64], [0.44, 0.66], [0.42, 0.68], [0.40, 0.70],
+                [0.60, 0.50], [0.62, 0.48], [0.64, 0.46], [0.66, 0.44], [0.68, 0.42],
+                [0.38, 0.72], [0.36, 0.74], [0.34, 0.76], [0.32, 0.78], [0.30, 0.80],
+                [0.70, 0.40],
+            ]
+        },
+    )
+    metadata: Optional[Dict[str, str]] = Field(
+        None,
+        description="Optional client metadata",
+        json_schema_extra={"example": {"device": "iphone"}},
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "session_id": "session-123",
+                "user_id": "user-abc",
+                "landmarks": [
+                    [0.5, 0.6], [0.52, 0.58], [0.54, 0.56], [0.56, 0.54], [0.58, 0.52],
+                    [0.48, 0.62], [0.46, 0.64], [0.44, 0.66], [0.42, 0.68], [0.40, 0.70],
+                    [0.60, 0.50], [0.62, 0.48], [0.64, 0.46], [0.66, 0.44], [0.68, 0.42],
+                    [0.38, 0.72], [0.36, 0.74], [0.34, 0.76], [0.32, 0.78], [0.30, 0.80],
+                    [0.70, 0.40],
+                ],
+                "metadata": {"device": "iphone"},
+            }
+        },
+        "protected_namespaces": (),
+    }
+
+
 class LandmarkResult(BaseModel):
     """Output for hand landmark extraction."""
 

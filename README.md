@@ -1,295 +1,187 @@
-# ASL Live Subtitles - Model Serving Microservice
+# ASL Model Serving Microservice
 
 ## Overview
+FastAPI service for ASL landmark extraction and gloss prediction. It extracts 21 hand landmarks from images or videos (MediaPipe when available, stub fallback), predicts gloss tokens via OpenAI GPT-4o (deterministic fallback if unavailable), aggregates recorded videos into a single gloss, and best-effort persists to MySQL in `landmarks` and `video_gloss_requests`.
 
-The ASL Live Subtitles Model Serving Microservice is a FastAPI-based service designed to provide real-time American Sign Language (ASL) recognition and translation capabilities. This microservice serves as the core ML inference engine for converting hand gestures into text, progressing from letter-level recognition to full sentence generation with AI assistance.
+Quick start:
+1) Install deps: `pip install -r requirements.txt`
+2) Export DB/OpenAI env vars (see below)
+3) Run: `uvicorn main:app --host 0.0.0.0 --port 8000 --reload`
+4) Open docs: http://localhost:8000/docs
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment instructions.
+Key config (env or headers):
+- `OPENAI_API_KEY` or `X-OpenAI-Key` header for OpenAI calls; fallback gloss `["FINALLY","CLASS","LAST","PRESENTATION"]` otherwise.
+- Optional `mediapipe` dependency for real landmarks; stub used if missing.
+- MySQL/Cloud SQL: `DB_HOST`/`DB_PORT` (or `DB_SOCKET`), `DB_NAME`, `DB_USER`, `DB_PASSWORD` for persistence to `landmarks` and `video_gloss_requests`; API still responds if writes fail.
 
-**Quick deploy:**
-
-```bash
-./deploy-to-gcp.sh
-```
-
-**Current deployment:**
-
-- URL: http://34.132.238.32:8001
-- Swagger UI: http://34.132.238.32:8001/docs
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.11 or higher
-- pip or uv package manager
-
-### Installation
-
-1. **Clone the repository:**
-
-```bash
-git clone git@github.com:ASL-Live-Subtitles/model-serving-microservice.git
-cd model-serving-microservice
-```
-
-2. **Install dependencies:**
-
-```bash
-pip install -r requirements.txt
-```
-
-### Running the Service
-
-**Start the development server:**
-
-```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-The service will be available at:
-
-- **API Base URL:** http://localhost:8000
-- **Interactive API Documentation:** http://localhost:8000/docs
-
-## API Endpoints
-
-### Database Spec
-
-- User (users)
-  - user_id PK
-  - display_name
-  - created_at
-
-- Session (sessions)
-  - session_id PK
-  - user_id FK -> users.user_id
-  - device_label
-  - started_at
-  - ended_at
-
-- Model (models)
-  - model_id PK
-  - name
-  - version
-  - model_type
-  - artifact_uri
-  - input_shape (JSON)
-  - output_shape (JSON)
-  - status
-  - metrics (JSON)
-  - sha256
-  - created_at
-  - updated_at
-
-- Gesture (gestures)
-  - gesture_id PK
-  - session_id FK -> sessions.session_id
-  - user_id FK -> users.user_id
-  - landmarks (JSON)
-  - frame_width
-  - frame_height
-  - source
-  - received_at
-  - model_id FK -> models.model_id
-  - predicted_label
-  - confidence
-  - probs (JSON)
-  - processing_time_ms
-  - processed_at
-
-- Prediction (predictions)
-  - prediction_id PK
-  - requestor_user_id FK -> users.user_id
-  - session_id FK -> sessions.session_id
-  - model_id FK -> models.model_id
-  - status
-  - created_at
-  - started_at
-  - completed_at
-  - params (JSON)
-  - output_text
-  - confidence
-  - latency_ms
-  - error_message
-
-- Caption (captions)
-  - caption_id PK
-  - session_id FK -> sessions.session_id
-  - prediction_id FK -> predictions.prediction_id
-  - start_ms
-  - end_ms
-  - text
-  - source
-  - confidence
-
-
-### Core Resources
-
-#### 🤲 Gestures
-
-- `GET /gestures` - List all gesture predictions
-- `POST /gestures` - Submit new gesture data for recognition
-- `PUT /gestures/{gesture_id}` - Update gesture prediction (NOT IMPLEMENTED)
-- `DELETE /gestures/{gesture_id}` - Delete gesture prediction
-
-#### 🤖 Models
-
-- `GET /models` - List all available ML models
-- `POST /models` - Register a new ML model
-- `PUT /models/{model_id}` - Update model configuration (NOT IMPLEMENTED)
-- `DELETE /models/{model_id}` - Remove ML model
-
-#### 🔮 Predictions
-
-- `GET /predictions` - List all prediction requests
-- `POST /predictions` - Create batch prediction request
-- `PUT /predictions/{prediction_id}` - Update prediction status (NOT IMPLEMENTED)
-- `DELETE /predictions/{prediction_id}` - Cancel prediction request
-
-#### 🏥 Health Check
-
-- `GET /` - Root endpoint with service information
-- `GET /health` - Health check endpoint
-
-## Testing the API
-
-### Using Swagger UI (Recommended)
-
-1. **Start the server** (see Running the Service section above)
-2. **Open your browser** and navigate to http://localhost:8000/docs
-3. **Explore the interactive documentation** - you can test all endpoints directly from the browser
-
-![Swagger UI](Swagger%20UI.png)
-
-### Using curl or HTTP clients
-
-**Example: Submit gesture data**
-
-```bash
-curl -X POST "http://localhost:8000/gestures" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "landmarks": [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]],
-    "user_id": "test_user_123"
-  }'
-```
-
-**Example: List all gestures**
-
-```bash
-curl -X GET "http://localhost:8000/gestures"
-```
-
-**Example: Register a new model**
-
-```bash
-curl -X POST "http://localhost:8000/models" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "ASL_Letter_Classifier_v1",
-    "version": "1.0.0",
-    "model_path": "/models/asl_letters.h5",
-    "input_shape": [21, 2],
-    "output_shape": [26],
-    "model_type": "tensorflow"
-  }'
-```
-
-### API Testing Results
-
-![API Test Results](API%20Test.png)
-
-## Data Models
-
-### GestureInput
-
+## Models
+**LandmarkInput (request)** — from `models/landmark.py`
 ```json
 {
-  "landmarks": [
-    [0.1, 0.2],
-    [0.3, 0.4]
-  ],
-  "user_id": "optional_user_id"
+  "session_id": "session-123",
+  "user_id": "user-abc",
+  "image_url": "https://example.com/frame.jpg",
+  "frame_base64": "data:image/jpeg;base64,...",
+  "metadata": {"device": "iphone"}
 }
 ```
 
-### GestureResult
-
+**LandmarkResult (response)** — from `models/landmark.py`
 ```json
 {
-  "id": "gesture_123",
-  "predicted_gesture": "A",
-  "confidence": 0.95,
-  "processing_time_ms": 45.2,
+  "id": "550e8400-e29b-41d4-a716-446655440100",
+  "session_id": "session-123",
+  "user_id": "user-abc",
+  "landmarks": [[0.5, 0.6], [0.52, 0.58], "..."],
+  "method": "mediapipe",
+  "extracted_at": "2025-01-16T12:34:56Z",
+  "metadata": {"device": "iphone"}
+}
+```
+
+**LandmarkUpdate (request)** — from `models/landmark.py`
+```json
+{
+  "session_id": "session-123",
+  "user_id": "user-abc",
+  "landmarks": [[0.5, 0.6], [0.52, 0.58], "..."],
+  "metadata": {"device": "iphone"}
+}
+```
+
+**GlossPredictionInput (request)** — from `models/gloss.py`
+```json
+{
+  "session_id": "session-123",
+  "user_id": "user-abc",
+  "landmark_id": "550e8400-e29b-41d4-a716-446655440100",
+  "landmarks": null
+}
+```
+
+**GlossPredictionResult (response)** — from `models/gloss.py`
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440200",
+  "session_id": "session-123",
+  "user_id": "user-abc",
+  "landmark_id": "550e8400-e29b-41d4-a716-446655440100",
+  "gloss": ["HELLO"],
+  "confidence": 0.93,
+  "inference_method": "openai",
   "model_version": "v1.0.0",
-  "timestamp": "2024-01-15T10:30:00Z"
+  "raw_openai_response": {"choices": []},
+  "created_at": "2025-01-16T12:34:56Z"
 }
 ```
 
-### ModelInput
-
+**VideoGlossResponse (response)** — from `main.py`
 ```json
 {
-  "name": "ASL_Letter_Classifier",
-  "version": "1.0.0",
-  "model_path": "/models/classifier.h5",
-  "input_shape": [21, 2],
-  "output_shape": [26],
-  "model_type": "tensorflow"
+  "gloss": ["HELLO"],
+  "confidence": 0.93,
+  "frames_processed": 12,
+  "inference_method": "openai",
+  "model_version": "v1.0.0",
+  "raw_openai_response": {"choices": []}
 }
 ```
 
-## Development
-
-### Project Structure
-
+**video_gloss_requests (DB row)** — persisted when DB available
+```json
+{
+  "id": "uuid",
+  "video_uri": "sample.mp4",
+  "landmarks": [[[0.5,0.6],"..."]],
+  "gloss": ["FINALLY","CLASS","LAST","PRESENTATION"],
+  "confidence": 0.5,
+  "inference_method": "fallback",
+  "raw_openai_response": null,
+  "detected": false
+}
 ```
-model-serving-microservice/
-├── main.py              # FastAPI application and endpoints
-├── models/              # Pydantic data models
-│   ├── __init__.py
-│   └── gesture.py       # Data schemas and validation
-├── requirements.txt     # Python dependencies
-└── README.md           # This file
-```
 
-### Adding New Features
+## API Methods
+**Landmarks**
+- POST /landmarks — Extract 21 hand landmarks from an image/frame (multipart `file`, MediaPipe if installed, else stub).
+- GET /landmarks — List in-memory landmark records.
+- GET /landmarks/{id} — Retrieve a landmark record.
+- PUT /landmarks/{id} — Update a landmark record (landmarks, session/user/metadata) and best-effort persist to MySQL.
+- DELETE /landmarks/{id} — Delete a landmark record.
 
-1. **Define new data models** in `models/gesture.py`
-2. **Add new endpoints** in `main.py`
-3. **Update requirements.txt** if new dependencies are needed
-4. **Test your changes** using the Swagger UI or curl commands
+**Gloss Predictions**
+- POST /gloss-predictions — Predict gloss tokens from a `landmark_id` or inline `landmarks`; best-effort persist to MySQL.
+- GET /gloss-predictions — List gloss predictions in memory.
+- GET /gloss-predictions/{id} — Retrieve a gloss prediction.
+- PUT /gloss-predictions/{id} — Recompute gloss using new landmarks or a different landmark.
+- DELETE /gloss-predictions/{id} — Remove a gloss prediction (and delete DB row if present).
+
+**Video Gloss**
+- POST /video-gloss — Upload a recorded video, sample frames, extract landmarks, and return one gloss; best-effort persist to MySQL.
+
+**Service Info**
+- GET / — Root service info (links to docs and key endpoints).
+- GET /docs — OpenAPI UI.
 
 ## Deployment
+- Install deps: `pip install -r requirements.txt`
+- Run locally: export env and start
+  ```bash
+  export DB_HOST=136.113.187.126
+  export DB_PORT=3306
+  export DB_NAME=model_serving_db
+  export DB_USER=model_serving_user
+  export DB_PASSWORD='H7!qZ9p#L2vBn3'
+  uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+  ```
+- Docker (pass env inline):
+  ```bash
+  docker build -t model-serving .
+  docker run -p 8001:8001 \
+    -e DB_HOST=136.113.187.126 \
+    -e DB_PORT=3306 \
+    -e DB_NAME=model_serving_db \
+    -e DB_USER=model_serving_user \
+    -e DB_PASSWORD='H7!qZ9p#L2vBn3' \
+    model-serving
+  ```
+  If you previously built before OpenCV libs were added, rebuild with `docker build --no-cache -t model-serving .`.
+- Quick deploy helper: `./deploy-to-gcp.sh`
+- Docs: http://localhost:8000/docs
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for:
+**Database schema**
+- Apply schema to MySQL/Cloud SQL (creates `landmarks` and `video_gloss_requests`):
+  ```bash
+  mysql -h $DB_HOST -P $DB_PORT -u $DB_USER -p$DB_PASSWORD $DB_NAME < db/schema.sql
+  ```
 
-- Google Cloud Compute Engine (VM)
-- Google Cloud Run (serverless)
-- Local Docker setup
-- Management commands
-- Troubleshooting
+## Testing
+- OpenAPI docs: start the server, open http://localhost:8000/docs
+- OpenAPI docs UI:
 
-### Local Development
+  ![OpenAPI Docs](Swagger%20UI.png)
+- Curl examples:
+  - Landmarks (image):
+    ```bash
+    curl -X POST http://localhost:8000/landmarks \
+      -H "Accept: application/json" \
+      -F "file=@frame.jpg"
+    ```
+  - Gloss from landmarks:
+    ```bash
+    curl -X POST http://localhost:8000/gloss-predictions \
+      -H "Content-Type: application/json" \
+      -H "X-OpenAI-Key: sk-..." \
+      -d '{"landmarks": [[0.5,0.6],[0.52,0.58],"..."]}'
+    ```
+  - Video gloss:
+    ```bash
+    curl -X POST http://localhost:8000/video-gloss \
+      -H "Accept: application/json" \
+      -H "X-OpenAI-Key: sk-..." \
+      -F "file=@sample.mp4" \
+      -F "target_fps=5"
+    ```
+- API test run:
 
-```bash
-# Docker
-docker-compose up
-
-# Or direct
-docker build -t model-serving .
-docker run -p 8001:8001 model-serving
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## Support
-
-For questions, issues, or contributions, please visit our GitHub repository or contact the development team.
+  ![API Test Results](testing.png)

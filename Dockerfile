@@ -9,9 +9,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PORT=8001
 
-# Install system dependencies
+# Install system dependencies (OpenCV runtime + build essentials)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements file
@@ -38,4 +43,3 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 # Command to run the application
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
-

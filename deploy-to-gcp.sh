@@ -199,6 +199,12 @@ deploy_docker() {
             --name model-serving \
             --restart unless-stopped \
             -p 8001:8001 \
+            -e DB_HOST=127.0.0.1 \
+            -e DB_PORT=3306 \
+            -e DB_NAME=model_serving_db \
+            -e DB_USER=model_serving_user \
+            -e DB_PASSWORD='H7!qZ9p#L2vBn3' \
+            -e OPENAI_API_KEY='$OPENAI_API_KEY' \
             gcr.io/$PROJECT_ID/model-serving-microservice:latest
         
         echo 'Checking container status...'
@@ -289,8 +295,8 @@ print_summary() {
     echo "  # Health check"
     echo "  curl http://$VM_IP:8001/health"
     echo ""
-    echo "  # Get gestures"
-    echo "  curl http://$VM_IP:8001/gestures"
+    echo "  # List video gloss records"
+    echo "  curl http://$VM_IP:8001/video-gloss"
     echo ""
     echo "SSH into VM:"
     echo "  gcloud compute ssh $VM_NAME --zone=$ZONE"
@@ -344,4 +350,3 @@ main() {
 
 # Run main function
 main
-
