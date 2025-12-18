@@ -1,7 +1,7 @@
 # ASL Model Serving Microservice
 
 ## Overview
-FastAPI service for ASL landmark extraction and gloss prediction. It extracts 21 hand landmarks from images or videos (MediaPipe when available, stub fallback), predicts gloss tokens via OpenAI GPT-4o (deterministic fallback if unavailable), aggregates recorded videos into a single gloss, and best-effort persists to MySQL in `landmarks` and `video_gloss_requests`.
+FastAPI service for ASL landmark extraction and gloss prediction. It extracts 21 hand landmarks from images or videos (MediaPipe when available, stub fallback), aggregates recorded videos into a single gloss, and persists final video gloss results to MySQL in `video_gloss_requests` (landmarks/gloss endpoints are in-memory only).
 
 Quick start:
 1) Install deps: `pip install -r requirements.txt`
@@ -10,9 +10,8 @@ Quick start:
 4) Open docs: http://localhost:8000/docs
 
 Key config (env or headers):
-- `OPENAI_API_KEY` or `X-OpenAI-Key` header for OpenAI calls; fallback gloss `["FINALLY","CLASS","LAST","PRESENTATION"]` otherwise.
 - Optional `mediapipe` dependency for real landmarks; stub used if missing.
-- MySQL/Cloud SQL: `DB_HOST`/`DB_PORT` (or `DB_SOCKET`), `DB_NAME`, `DB_USER`, `DB_PASSWORD` for persistence to `landmarks` and `video_gloss_requests`; API still responds if writes fail.
+- MySQL/Cloud SQL: `DB_HOST`/`DB_PORT` (or `DB_SOCKET`), `DB_NAME`, `DB_USER`, `DB_PASSWORD` for persistence to `video_gloss_requests`; landmarks/gloss endpoints remain in-memory. API still responds if DB writes fail.
 
 ## Models
 **LandmarkInput (request)** — from `models/landmark.py`
@@ -78,6 +77,7 @@ Key config (env or headers):
 **VideoGlossResponse (response)** — from `main.py`
 ```json
 {
+  "id": "06b11e4c-2775-4b97-ae09-244a05d23a26",
   "gloss": ["HELLO"],
   "confidence": 0.93,
   "frames_processed": 12,
@@ -106,18 +106,22 @@ Key config (env or headers):
 - POST /landmarks — Extract 21 hand landmarks from an image/frame (multipart `file`, MediaPipe if installed, else stub).
 - GET /landmarks — List in-memory landmark records.
 - GET /landmarks/{id} — Retrieve a landmark record.
-- PUT /landmarks/{id} — Update a landmark record (landmarks, session/user/metadata) and best-effort persist to MySQL.
+- PUT /landmarks/{id} — Update a landmark record (landmarks, session/user/metadata) in memory.
 - DELETE /landmarks/{id} — Delete a landmark record.
 
 **Gloss Predictions**
-- POST /gloss-predictions — Predict gloss tokens from a `landmark_id` or inline `landmarks`; best-effort persist to MySQL.
+- POST /gloss-predictions — Predict gloss tokens from a `landmark_id` or inline `landmarks`; in-memory only.
 - GET /gloss-predictions — List gloss predictions in memory.
 - GET /gloss-predictions/{id} — Retrieve a gloss prediction.
 - PUT /gloss-predictions/{id} — Recompute gloss using new landmarks or a different landmark.
-- DELETE /gloss-predictions/{id} — Remove a gloss prediction (and delete DB row if present).
+- DELETE /gloss-predictions/{id} — Remove a gloss prediction (in-memory).
 
 **Video Gloss**
-- POST /video-gloss — Upload a recorded video, sample frames, extract landmarks, and return one gloss; best-effort persist to MySQL.
+- GET /video-gloss — List persisted video gloss requests from MySQL.
+- GET /video-gloss/{id} — Retrieve a video gloss record by ID.
+- POST /video-gloss — Upload a recorded video, sample frames, and return one gloss (vision + landmarks); persists to MySQL with an ID.
+- PUT /video-gloss/{id} — Update fields (gloss/confidence/method/raw_openai/landmarks/detected) for an existing record.
+- DELETE /video-gloss/{id} — Delete a video gloss record from MySQL.
 
 **Service Info**
 - GET / — Root service info (links to docs and key endpoints).
@@ -127,7 +131,7 @@ Key config (env or headers):
 - Install deps: `pip install -r requirements.txt`
 - Run locally: export env and start
   ```bash
-  export DB_HOST=136.113.187.126
+  export DB_HOST=127.0.0.1        # or Cloud SQL proxy/connector host
   export DB_PORT=3306
   export DB_NAME=model_serving_db
   export DB_USER=model_serving_user
@@ -138,7 +142,7 @@ Key config (env or headers):
   ```bash
   docker build -t model-serving .
   docker run -p 8001:8001 \
-    -e DB_HOST=136.113.187.126 \
+    -e DB_HOST=127.0.0.1 \
     -e DB_PORT=3306 \
     -e DB_NAME=model_serving_db \
     -e DB_USER=model_serving_user \
@@ -150,7 +154,7 @@ Key config (env or headers):
 - Docs: http://localhost:8000/docs
 
 **Database schema**
-- Apply schema to MySQL/Cloud SQL (creates `landmarks` and `video_gloss_requests`):
+- Apply schema to MySQL/Cloud SQL (creates `video_gloss_requests`; landmarks table optional/unused):
   ```bash
   mysql -h $DB_HOST -P $DB_PORT -u $DB_USER -p$DB_PASSWORD $DB_NAME < db/schema.sql
   ```

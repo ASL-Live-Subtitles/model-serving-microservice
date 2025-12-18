@@ -16,11 +16,11 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, HTTPException, status, UploadFile, File, Form, Header, Depends
 from PIL import Image
-from pydantic import BaseModel, Field
 
 # Import our models
 from models.landmark import LandmarkInput, LandmarkResult, LandmarkUpdate
 from models.gloss import GlossPredictionInput, GlossPredictionResult
+from models.videogloss import VideoGlossResponse, VideoGlossUpdate
 
 # Initialize FastAPI app with OpenAPI documentation
 app = FastAPI(
@@ -99,34 +99,6 @@ def make_dummy_gloss(gloss_id: UUID = None, landmark_id: UUID = None) -> GlossPr
         model_version="v1.0.0",
         created_at=datetime.utcnow()
     )
-
-class VideoGlossResponse(BaseModel):
-    """Response for video-based gloss prediction."""
-
-    id: str = Field(..., description="Unique identifier for this video gloss request (DB primary key)")
-    gloss: List[str] = Field(..., description="Predicted ASL gloss tokens (prefix removed)")
-    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
-    frames_processed: int = Field(..., description="Number of frames used")
-    inference_method: str = Field(..., description="Method used (openai/heuristic/stub)")
-    model_version: str = Field("v1.0.0", description="Model version used")
-    raw_openai_response: Optional[dict] = Field(
-        None,
-        description="Raw OpenAI response payload (if OpenAI was used)",
-    )
-
-class VideoGlossUpdate(BaseModel):
-    """Update payload for an existing video gloss record."""
-
-    gloss: Optional[List[str]] = Field(None, description="Updated gloss tokens")
-    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
-    inference_method: Optional[str] = Field(None, description="openai/fallback/stub")
-    raw_openai_response: Optional[dict] = Field(None, description="Raw OpenAI response")
-    detected: Optional[bool] = Field(None, description="Whether a hand was detected")
-    landmarks: Optional[List[List[List[float]]]] = Field(
-        None,
-        description="Optional updated landmark frames",
-    )
-
 
 def decode_image_file(upload: UploadFile) -> np.ndarray:
     """Load an uploaded image into a numpy RGB array."""

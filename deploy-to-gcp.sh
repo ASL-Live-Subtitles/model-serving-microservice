@@ -199,12 +199,11 @@ deploy_docker() {
             --name model-serving \
             --restart unless-stopped \
             -p 8001:8001 \
-            -e DB_HOST=127.0.0.1 \
-            -e DB_PORT=3306 \
-            -e DB_NAME=model_serving_db \
-            -e DB_USER=model_serving_user \
-            -e DB_PASSWORD='H7!qZ9p#L2vBn3' \
-            -e OPENAI_API_KEY='$OPENAI_API_KEY' \
+            -e DB_HOST=${DB_HOST:-127.0.0.1} \
+            -e DB_PORT=${DB_PORT:-3306} \
+            -e DB_NAME=${DB_NAME:-model_serving_db} \
+            -e DB_USER=${DB_USER:-model_serving_user} \
+            -e DB_PASSWORD=${DB_PASSWORD:-H7!qZ9p#L2vBn3} \
             gcr.io/$PROJECT_ID/model-serving-microservice:latest
         
         echo 'Checking container status...'
